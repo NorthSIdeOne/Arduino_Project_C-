@@ -1,0 +1,331 @@
+#include <LiquidCrystal.h>
+
+
+LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
+int AO_Pin = 3;     // PWM pin
+int AI_Pin = A1; 
+
+
+//--------------------------------------------------------CLASA PID----------------------------------------
+class PID
+{
+  private:
+    float vf_ref;
+    float vf_com;
+    float vf_com_1;
+    float Te;
+    float Kr; 
+    float Ti; 
+    float Td;
+    float ek;
+    float ek_1;
+    float ek_2;
+    float q0;
+    float q1;
+    float q2;
+    float vf_mas;
+
+    
+  public:
+
+  //==================================================<CONSTRUCTOR>=======================================================
+
+  //-------------------------------------------------CONSTRUCTOR PID----------------------------------------
+    PID()
+    {
+      this->vf_ref = 3.5;
+      this->vf_com = 0.0;
+      this->vf_com_1 = 0.0;
+      this->Te = 0.1;
+      this->Kr = 0.1;
+      this->Ti = 0.01;//timp de raspuns(cat de repede se stinge si se aprinde ledul)
+      this->Td = 0.01;
+      this->ek = 0.0;
+      this->ek_1 = 0.0;
+      this->ek_2 = 0.0;
+      this->q0 = 0.0;
+      this->q1 = 0.0;
+      this->q2 = 0.0;
+      
+    }
+
+  //==================================================</CONSTRUCTOR>=======================================================
+
+
+  //===================================================<SET>========================================================
+  
+  //-------------------------------------------------SET VF_MAS--------------------------------------------------
+    void Set_Vf_Mas(float vf_mas)
+    {
+     
+      this->vf_mas = vf_mas; //setez valoarea masurata
+    }
+
+  //------------------------------------------------SET_VF_COM_1--------------------------------------------------
+
+    float Set_Vf_Com_1(float vf_com_1)
+    {
+      this->vf_com_1 = vf_com_1;
+    }
+
+  //-------------------------------------------------SET_VF_REF---------------------------------------------------
+
+    float Set_Vf_Ref(float vf_ref)
+    {
+      this->vf_ref = vf_ref; //setez referinta
+    }
+  
+  //==================================================</SET>=======================================================
+
+
+  //===================================================<GET>=======================================================
+ 
+  //-------------------------------------------------GET_VF_MAS---------------------------------------------------
+
+    float Get_Vf_Mas()
+    {
+      return this->vf_mas;//returnez valoarea masurata
+    }
+  
+  //-------------------------------------------------GET_VF_COM---------------------------------------------------
+    
+    float  Get_Vf_Com()
+    {
+      return this->vf_com;
+    }
+  
+  
+
+  //-------------------------------------------------GET_VF_REF------------------------------------------------------
+    
+    float  Get_Vf_Ref()
+    {
+      return this->vf_ref;
+    }
+
+  //===================================================</GET>=======================================================
+
+  
+  
+  
+  //===================================================<PID>========================================================
+  
+  //--------------------------------------------PID ALG-----------------------------------------------------------
+    
+    
+    void AlgPID()
+    {
+      q0 = Kr*(1+Te/Ti+Td/Te);  
+      q1 = -Kr*(1+2*Td/Te);
+      q2 = Kr*Te/Ti;
+
+
+      ek = vf_ref - vf_mas;
+      vf_com = vf_com_1 + q0*ek + q1*ek_1 + q2*ek_2;
+
+      vf_com_1 = vf_com;
+      ek_2 = ek_1;
+      ek_1 = ek;
+ 
+  
+      if(vf_com > 5.0)
+          vf_com = 5.0;
+      if(vf_com < 0.0)
+          vf_com = 0.0;
+    }
+
+ 
+  //==================================================</PID>=======================================================
+};
+
+
+//------------------------------------------------CLASA BUTON--------------------------------------------------
+class Button
+{
+  private:
+    int btnRIGHT;
+    int btnUP;
+    int btnDOWN;
+    int btnLEFT;
+    int btnSELECT;
+    int btnNONE;
+
+
+    int lcd_key;
+    int adc_key_in;
+   public:
+   //==================================================<CONSTRUCTOR>=======================================================
+  //---------------------------------------------CONSTRUCTOR BUTTON---------------------------------------------------
+   Button()
+   {
+     this->btnRIGHT = 0;
+     this->btnUP = 1;
+     this->btnDOWN = 2;
+     this->btnLEFT = 3;
+     this->btnSELECT = 4;
+     this->btnNONE = 5;
+
+     this->lcd_key = 0;
+     this->adc_key_in = 0;
+   }
+  //==================================================</CONSTRUCTOR>=======================================================
+
+
+  //==================================================<BUTOANE>=======================================================
+
+  //-----------------------------------------------CITIRE BUTOANE LCD--------------------------------------------------
+   int read_LCD_buttons()
+   {
+     adc_key_in = analogRead(0);
+    // read the value from the sensor
+    // my buttons when read are centered at these valies: 0, 144, 329, 504, 741
+    // we add approx 50 to those values and check to see if we are close
+    if (adc_key_in > 1000) return btnNONE; // We make this the 1st option for speed reasons since it will be the most likely result
+    if (adc_key_in < 50)  return btnRIGHT;
+    if (adc_key_in < 195) return btnUP;
+    if (adc_key_in < 380) return btnDOWN;
+    if (adc_key_in < 555) return btnLEFT;
+    if (adc_key_in < 790) return btnSELECT;
+    return btnNONE;   // when all other fail return this
+   
+   }
+  //------------------------------------------------SETAREA MANUALA A BUTOANELOR-------------------------------
+    
+    
+    float Select_Manual(PID obj) //Returneaza valoarea la care trebuie sa ajunga vf_ref in umra apasarii butonului Up sau Down
+    {
+      lcd_key = read_LCD_buttons();//Citire buton
+      switch (lcd_key) // depending on which button was pushed, we perform an action
+    {
+      case 1: //btnUP = 1
+      {
+      
+      if(obj.Get_Vf_Ref() > 5.0)  
+          return 5; //daca depaseste valoarea "5" il blochez la valoarea "5"
+      else
+          return obj.Get_Vf_Ref() + 0.5;//Returneaza valoarea la care trebuie sa ajung vf_ref dupa apasarea butonului UP
+
+    }
+    case 2:  //btnDOWN = 2
+    {
+      
+      if(obj.Get_Vf_Ref() < 0.0)
+              return 0; //daca ajunge la valori negative il mentin la valoarea "0"
+      else
+              return obj.Get_Vf_Ref() - 0.5;//Returneaza valoarea la care trebui sa ajunga vf_ref dupa apasarea butonului DOWN
+    
+    }
+
+    
+      
+    }
+      return obj.Get_Vf_Ref();//Returneaza valoarea actuala al variabilei vf_ref in caz ca a fost apasat alt buton
+  
+    }
+  //==================================================</BUTOANE>=======================================================
+
+};
+
+//--------------------------------------------------------------------CLASA LCD----------------------------------------
+
+//Folosim clasa LCD pentru afisarea valorilor vf_ref,vf_mas si vf_com si pentru reglarea ecranului
+class LCD
+{
+  public:
+ 
+ //==================================================<CONSTRUCTOR>=======================================================
+
+  //-------------------------------------CONSTRUCTOR------------------------------------------
+  
+  LCD() //Seteaza cursorul si mesaje de start pe LCD
+  {
+  // set up the LCD's number of columns and rows:
+  lcd.begin(16, 2);
+  // Print a message to the LCD.
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Start PID Alg");
+  //lcd.print("up");
+  lcd.setCursor(0,1);
+  lcd.print("Init. OK");
+  
+  }
+ //==================================================</CONSTRUCTOR>=======================================================
+
+
+
+ //==================================================<AFISARE>=======================================================
+
+  //------------------------------------Afisare Variabile:vf_ref,vf_mas si vf_com-------------
+  void Afisare(PID obj)
+  {
+  lcd.clear();
+  lcd.setCursor(0,0); //  prima cifra coloana, a doua linia
+  lcd.print("Ref: Mas: Com:");
+  //lcd.setCursor(5,0);
+  //lcd.print("Mas:");
+  lcd.setCursor(0,1);
+  lcd.print(obj.Get_Vf_Ref());  // de afisat valoarea in Volti
+  lcd.setCursor(5,1);
+  lcd.print(obj.Get_Vf_Mas());
+  lcd.setCursor(10,1);
+  lcd.print(obj.Get_Vf_Com());
+
+  // comunicatie seriala pe monitor apar datele in domeniu 0 - 100 %
+  // print out the value you read:
+  Serial.print("rk = ");
+  Serial.print(obj.Get_Vf_Ref()*20.0);
+  Serial.print("  yk = ");
+  Serial.print(obj.Get_Vf_Mas()*20.0);
+  Serial.print("  uk = ");
+  Serial.println(obj.Get_Vf_Com()*20.0);   // afisare in procente
+    
+  delay(1000);
+  }
+
+
+//==================================================</AFISARE>=======================================================
+
+};
+
+
+//----------------------------------------DECLARARE 3 OBIECTE--------------------------------
+  Button button;
+  PID Pid;
+  LCD Lcd;
+
+//------------------------------------------------------------------------------------------
+
+void setup() 
+{
+  pinMode(AO_Pin, OUTPUT);//Setare pin 
+  Serial.begin(9600);
+  delay(1000);
+
+}
+
+void loop() 
+{
+
+  int int_AI = analogRead(AI_Pin);
+  //Serial.print("int_AI = ");
+  //Serial.println(int_AI);
+  // Convert the analog reading (which goes from 0 - 1023) to a voltage (0 - 5V):
+  float float_AI = int_AI * (5.0 / 1023.0);
+  
+  Pid.Set_Vf_Mas(float_AI);//Setarea valorii masurate in obiectul Pid;
+  
+  float ref = button.Select_Manual(Pid); //Retine valoarea in urma apasarii butonului UP sau DOWN
+  
+  Pid.Set_Vf_Ref(ref);//Seteaza valoarea returnata anetrior in vf_ref
+  Pid.AlgPID();//Executa algoritmul de calucl PID
+
+  int int_val_AO = Pid.Get_Vf_Com() * (255.0 / 5.0);
+  analogWrite(AO_Pin, int_val_AO);
+
+
+  Pid.Set_Vf_Com_1(Pid.Get_Vf_Com());// Actualizeaza vf_com_1
+
+  Lcd.Afisare(Pid);//Afiseaza variabilele :vf_ref,vf_mas si vf_com
+  
+}
